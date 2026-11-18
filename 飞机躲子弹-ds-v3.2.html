@@ -1,0 +1,2054 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#05070f">
+<title>弹幕闪避 · 战机进化 3.1</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%; height: 100dvh;
+    overflow: hidden;
+    background: #05070f;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: #cbd5e1;
+    user-select: none; -webkit-user-select: none;
+    overscroll-behavior: none;
+  }
+  #stage { position: fixed; inset: 0; overflow: hidden; touch-action: none; }
+  #cv { display: block; position: absolute; top: 0; left: 0; touch-action: none; }
+
+  /* ---------------- HUD ---------------- */
+  #hud {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: calc(env(safe-area-inset-top, 0px) + 8px) 10px 0;
+    pointer-events: none; z-index: 5;
+  }
+  .hudRow { display: flex; gap: 6px; margin-bottom: 6px; }
+  .pill {
+    flex: 1; min-width: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 8px; gap: 4px;
+    font-size: 10px; letter-spacing: .3px;
+    background: rgba(10,16,32,.6);
+    border: 1px solid rgba(255,255,255,.09);
+    border-radius: 8px;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    white-space: nowrap; overflow: hidden;
+  }
+  .pill .lb { color: #7b879e; flex-shrink: 0; }
+  .pill .vl {
+    color: #6ee7ff; font-weight: 700; font-variant-numeric: tabular-nums;
+    font-size: 12px; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pill .vl.life { color: #fb7185; }
+  .pill .vl.lv { color: #fbbf24; }
+
+  .energyRow { display: flex; align-items: center; gap: 8px; }
+  .ebar {
+    flex: 1; height: 6px; border-radius: 99px;
+    background: rgba(10,16,32,.65);
+    border: 1px solid rgba(255,255,255,.08);
+    overflow: hidden;
+  }
+  .efill {
+    height: 100%; width: 0%; border-radius: 99px;
+    background: linear-gradient(90deg,#0ea5e9,#22d3ee,#a78bfa);
+    transition: width .08s linear;
+  }
+  .efill.ready {
+    background: linear-gradient(90deg,#fbbf24,#f97316,#fbbf24);
+    animation: pulseBar .7s ease-in-out infinite;
+  }
+  @keyframes pulseBar { 0%,100%{filter:brightness(1);} 50%{filter:brightness(1.8);} }
+
+  .olTag {
+    font-size: 10px; font-weight: 800; color: #fbbf24;
+    white-space: nowrap; min-width: 64px; text-align: right;
+    opacity: 0; transition: opacity .12s;
+    text-shadow: 0 0 10px rgba(251,191,36,.85);
+    font-variant-numeric: tabular-nums;
+  }
+  .olTag.show { opacity: 1; animation: olPulse .6s ease-in-out infinite; }
+  @keyframes olPulse { 0%,100%{opacity:1;} 50%{opacity:.45;} }
+
+  /* ---------------- 技能按钮 ---------------- */
+  #skillBtn {
+    position: absolute;
+    right: calc(env(safe-area-inset-right, 0px) + 16px);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+    width: 74px; height: 74px;
+    border-radius: 50%;
+    border: 2px solid rgba(110,231,255,.3);
+    background: radial-gradient(circle at 35% 30%, rgba(34,211,238,.24), rgba(8,14,28,.9));
+    color: #6ee7ff;
+    font-size: 23px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 6; touch-action: none;
+    transition: transform .1s, box-shadow .25s, border-color .25s, color .25s;
+    box-shadow: 0 6px 22px rgba(0,0,0,.5);
+  }
+  #skillBtn .lbl { font-size: 9px; letter-spacing: 1px; margin-top: -1px; color: #7b879e; transition: color .25s; }
+  #skillBtn:active { transform: scale(.9); }
+  #skillBtn.ready {
+    border-color: rgba(251,191,36,.85); color: #fbbf24;
+    animation: btnGlow 1s ease-in-out infinite;
+  }
+  #skillBtn.ready .lbl { color: #fbbf24; }
+  @keyframes btnGlow {
+    0%,100% { box-shadow: 0 0 16px rgba(251,191,36,.35), 0 6px 22px rgba(0,0,0,.5); }
+    50%     { box-shadow: 0 0 34px rgba(251,191,36,.85), 0 6px 22px rgba(0,0,0,.5); }
+  }
+
+  /* ---------------- 覆盖层 ---------------- */
+  .overlay {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    padding: 14px;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 14px);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+    background: rgba(4,6,14,.88);
+    backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+  }
+  .overlay.hidden { display: none; }
+  .panel {
+    width: 100%; max-width: 420px; max-height: 100%; overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 20px 18px;
+    text-align: center;
+    background: linear-gradient(165deg,#141c33,#0a0f1e);
+    border: 1px solid rgba(255,255,255,.13);
+    border-radius: 18px;
+    box-shadow: 0 30px 90px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.06);
+    animation: pop .28s cubic-bezier(.2,1.4,.5,1);
+  }
+  @keyframes pop { from { transform: scale(.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .panel h2 { margin: 0 0 4px; font-size: 18px; color: #e2e8f0; letter-spacing: 1px; }
+  .panel .sub { margin: 0 0 14px; font-size: 12px; color: #7b879e; line-height: 1.5; }
+
+  /* ---------------- 选机卡片 ---------------- */
+  .ships { display: flex; flex-direction: column; gap: 9px; }
+  .shipCard {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px;
+    text-align: left;
+    background: linear-gradient(120deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+    border: 1.5px solid rgba(255,255,255,.09);
+    border-radius: 14px;
+    cursor: pointer;
+    transition: transform .12s, border-color .18s, background .18s;
+  }
+  .shipCard:active {
+    transform: scale(.975);
+    border-color: rgba(110,231,255,.6);
+    background: rgba(110,231,255,.1);
+  }
+  .shipCard.locked {
+    opacity: .6;
+    border-style: dashed;
+    border-color: rgba(255,255,255,.14);
+    background: rgba(255,255,255,.015);
+  }
+  .shipCard.locked:active {
+    border-color: rgba(251,191,36,.5);
+    background: rgba(251,191,36,.05);
+  }
+  .shipCard.bonus {
+    border-color: rgba(232,121,249,.42);
+    background: linear-gradient(120deg, rgba(232,121,249,.12), rgba(56,189,248,.06));
+    box-shadow: 0 0 22px rgba(232,121,249,.12);
+  }
+  .shipCard.bonus:active {
+    border-color: rgba(232,121,249,.85);
+    background: rgba(232,121,249,.2);
+  }
+  .shipCv {
+    flex-shrink: 0; display: block;
+    width: 96px; height: 96px;
+    filter: drop-shadow(0 4px 14px rgba(0,0,0,.6));
+  }
+  .shipInfo { flex: 1; min-width: 0; }
+  .shipHead { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; flex-wrap: wrap; }
+  .shipName { font-size: 15px; font-weight: 800; color: #e2e8f0; letter-spacing: .5px; }
+  .shipTag {
+    font-size: 9.5px; padding: 1px 6px; border-radius: 99px;
+    background: rgba(110,231,255,.13);
+    border: 1px solid rgba(110,231,255,.3);
+    color: #6ee7ff; white-space: nowrap;
+  }
+  .shipTag.bonus {
+    background: rgba(232,121,249,.16);
+    border-color: rgba(232,121,249,.45);
+    color: #f0abfc;
+  }
+  .shipDesc { font-size: 11.5px; color: #94a3b8; line-height: 1.45; margin-bottom: 4px; }
+  .shipStats { font-size: 10.5px; color: #fbbf24; letter-spacing: .3px; }
+  .shipCard.locked .shipStats { color: #8a94a8; }
+
+  /* ---------------- 结算 ---------------- */
+  .rating { font-size: 22px; font-weight: 800; margin: 8px 0 3px; color: #fbbf24; }
+  .ratingDesc { font-size: 12px; color: #8794ad; margin-bottom: 14px; line-height: 1.5; }
+
+  .results { display: flex; gap: 8px; margin-bottom: 14px; }
+  .results.compact { margin-top: -6px; }
+  .res {
+    flex: 1; padding: 9px 6px; border-radius: 11px;
+    background: rgba(110,231,255,.06);
+    border: 1px solid rgba(110,231,255,.16);
+  }
+  .res span { display: block; font-size: 10px; color: #7b879e; margin-bottom: 4px; }
+  .res b { font-size: 18px; color: #6ee7ff; font-variant-numeric: tabular-nums; }
+  .res b.gold { color: #fbbf24; }
+
+  .tabs { display: flex; gap: 5px; margin-bottom: 9px; }
+  .tab {
+    flex: 1; padding: 7px 4px;
+    font-size: 11.5px; font-weight: 600;
+    color: #7b879e;
+    background: rgba(255,255,255,.03);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 9px;
+    cursor: pointer; touch-action: manipulation;
+    transition: all .15s;
+  }
+  .tab.active {
+    color: #0b1120; background: linear-gradient(135deg,#22d3ee,#38bdf8);
+    border-color: transparent;
+    box-shadow: 0 3px 14px rgba(34,211,238,.35);
+  }
+
+  .boardTitle { font-size: 12px; color: #7b879e; text-align: left; margin-bottom: 6px; }
+  .row {
+    display: grid; grid-template-columns: 24px 1fr 1fr;
+    align-items: center; padding: 6px 9px; margin-bottom: 3px;
+    font-size: 12.5px; border-radius: 8px;
+    background: rgba(255,255,255,.03);
+    color: #94a3b8;
+  }
+  .row .rk { color: #64748b; font-weight: 700; }
+  .row .main { color: #6ee7ff; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .row .sub { color: #64748b; text-align: right; font-variant-numeric: tabular-nums; }
+  .row.me {
+    background: rgba(251,191,36,.14);
+    border: 1px solid rgba(251,191,36,.4);
+  }
+  .row.me .rk, .row.me .main, .row.me .sub { color: #fbbf24; }
+  .emptyBoard { font-size: 12px; color: #4d5a75; padding: 12px 0; }
+
+  .btnRow { display: flex; gap: 8px; margin-top: 14px; }
+  .btn {
+    flex: 1; padding: 12px 8px;
+    font-size: 13.5px; font-weight: 700; letter-spacing: .5px;
+    border: none; border-radius: 12px;
+    cursor: pointer; touch-action: manipulation;
+    transition: transform .12s, box-shadow .12s;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn.primary {
+    color: #04121a;
+    background: linear-gradient(135deg,#22d3ee,#38bdf8);
+    box-shadow: 0 8px 26px rgba(34,211,238,.35);
+  }
+  .btn.ghost {
+    color: #94a3b8;
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.13);
+  }
+
+  /* ---------------- Toast ---------------- */
+  .toast {
+    position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 34px);
+    transform: translate(-50%, 16px);
+    padding: 10px 18px; border-radius: 12px;
+    background: rgba(20,28,51,.96);
+    border: 1px solid rgba(251,191,36,.4);
+    color: #fbbf24; font-size: 12.5px; font-weight: 700; line-height: 1.45;
+    opacity: 0; pointer-events: none; z-index: 99;
+    transition: opacity .2s, transform .2s;
+    max-width: 84%; text-align: center;
+    box-shadow: 0 10px 34px rgba(0,0,0,.6);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="cv"></canvas>
+
+  <div id="hud">
+    <div class="hudRow">
+      <div class="pill"><span class="lb">⏱</span><span class="vl" id="uiTime">0.0</span></div>
+      <div class="pill"><span class="lb">⭐</span><span class="vl" id="uiScore">0</span></div>
+      <div class="pill"><span class="lb">LV</span><span class="vl lv" id="uiLevel">1</span></div>
+      <div class="pill"><span class="lb">❤</span><span class="vl life" id="uiLives">1</span></div>
+    </div>
+    <div class="energyRow">
+      <div class="ebar"><div class="efill" id="uiEnergyFill"></div></div>
+      <div class="olTag" id="uiOverload">⚡ +0.0s</div>
+    </div>
+  </div>
+
+  <button id="skillBtn">⚡<span class="lbl">清屏</span></button>
+</div>
+
+<!-- 选机界面 -->
+<div class="overlay" id="selectOverlay">
+  <div class="panel">
+    <h2>选择你的战机</h2>
+    <p class="sub">三款经典战机 + 一台隐藏奖励机，点击出击</p>
+    <div class="ships" id="shipList"></div>
+  </div>
+</div>
+
+<!-- 结算界面 -->
+<div class="overlay hidden" id="overOverlay">
+  <div class="panel">
+    <h2>💥 任务结束</h2>
+    <div class="rating" id="uiRating">—</div>
+    <div class="ratingDesc" id="uiRatingDesc"></div>
+
+    <div class="results">
+      <div class="res"><span>存活时间</span><b id="uiResTime">0.0s</b></div>
+      <div class="res"><span>擦弹评分</span><b id="uiResScore">0</b></div>
+    </div>
+    <div class="results compact">
+      <div class="res"><span>时间奖励</span><b class="gold" id="uiResTimeBonus">0</b></div>
+      <div class="res"><span>综合得分</span><b id="uiResWeight">0</b></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="weight">综合榜</button>
+      <button class="tab" data-tab="score">分数榜</button>
+      <button class="tab" data-tab="time">时间榜</button>
+    </div>
+    <div class="boardTitle" id="uiBoardTitle">🏆 排行榜</div>
+    <div id="uiBoardList"></div>
+
+    <div class="btnRow">
+      <button class="btn ghost" id="changeShipBtn">换战机</button>
+      <button class="btn primary" id="restartBtn">再来一局</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ================================================================
+     工具
+  ================================================================ */
+  const TAU = Math.PI * 2;
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  const rand = (a, b) => a + Math.random() * (b - a);
+
+  function shade(hex, amt) {
+    const r = clamp(parseInt(hex.slice(1, 3), 16) + amt, 0, 255);
+    const g = clamp(parseInt(hex.slice(3, 5), 16) + amt, 0, 255);
+    const b = clamp(parseInt(hex.slice(5, 7), 16) + amt, 0, 255);
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+
+  function poly(c2d, pts, u) {
+    c2d.beginPath();
+    for (let i = 0; i < pts.length; i++) {
+      const x = pts[i][0] * u, y = pts[i][1] * u;
+      if (i === 0) c2d.moveTo(x, y); else c2d.lineTo(x, y);
+    }
+    c2d.closePath();
+  }
+
+  /* ================================================================
+     DOM
+  ================================================================ */
+  const stage        = document.getElementById('stage');
+  const cv           = document.getElementById('cv');
+  const ctx          = cv.getContext('2d');
+  const uiTime       = document.getElementById('uiTime');
+  const uiScore      = document.getElementById('uiScore');
+  const uiLevel      = document.getElementById('uiLevel');
+  const uiLives      = document.getElementById('uiLives');
+  const uiEnergyFill = document.getElementById('uiEnergyFill');
+  const uiOverload   = document.getElementById('uiOverload');
+  const skillBtn     = document.getElementById('skillBtn');
+
+  const selectOverlay = document.getElementById('selectOverlay');
+  const shipList      = document.getElementById('shipList');
+
+  const overOverlay   = document.getElementById('overOverlay');
+  const uiRating      = document.getElementById('uiRating');
+  const uiRatingDesc  = document.getElementById('uiRatingDesc');
+  const uiResTime     = document.getElementById('uiResTime');
+  const uiResScore    = document.getElementById('uiResScore');
+  const uiResTimeBonus= document.getElementById('uiResTimeBonus');
+  const uiResWeight   = document.getElementById('uiResWeight');
+  const uiBoardTitle  = document.getElementById('uiBoardTitle');
+  const uiBoardList   = document.getElementById('uiBoardList');
+  const restartBtn    = document.getElementById('restartBtn');
+  const changeShipBtn = document.getElementById('changeShipBtn');
+  const toastEl       = document.getElementById('toast');
+
+  /* ================================================================
+     Toast
+  ================================================================ */
+  let toastTimer = null;
+  function showToast(text) {
+    toastEl.textContent = text;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1900);
+  }
+
+  /* ================================================================
+     战机定义
+     —— 普通三机：sizeScale 1 / bombSpeedMul 1
+     —— 奖励机：体型 0.5、四向 1.40、清屏波速 ×0.55
+  ================================================================ */
+  const BONUS_UNLOCK_SCORE = 1000;
+
+  const SHIPS = [
+    {
+      id: 'f15',
+      name: 'F-15「鹰」',
+      tag: '纵向特化',
+      body: '#7dd3fc',
+      wing: '#0ea5e9',
+      glow: '#22d3ee',
+      desc: '推重比超过 1 的重型制空战斗机，垂直爬升与俯冲极为凌厉。',
+      stats: '上下 ×1.30 · 左右 ×0.86 · 斜向 ×1.00',
+      mul: { v: 1.30, h: 0.86, d: 1.00 },
+      sizeScale: 1,
+      bombSpeedMul: 1,
+      shape: 'f15'
+    },
+    {
+      id: 'f14',
+      name: 'F-14「雄猫」',
+      tag: '横向特化',
+      body: '#fde68a',
+      wing: '#f59e0b',
+      glow: '#fbbf24',
+      desc: '可变后掠翼舰载截击机，翼展展开时横向机动格外迅猛。',
+      stats: '上下 ×0.86 · 左右 ×1.30 · 斜向 ×1.00',
+      mul: { v: 0.86, h: 1.30, d: 1.00 },
+      sizeScale: 1,
+      bombSpeedMul: 1,
+      shape: 'f14'
+    },
+    {
+      id: 'su27',
+      name: 'Su-27「侧卫」',
+      tag: '斜向特化',
+      body: '#c4b5fd',
+      wing: '#8b5cf6',
+      glow: '#a78bfa',
+      desc: '超机动重型战机，过失速机动出色，斜向缠斗如行云流水。',
+      stats: '上下 ×0.88 · 左右 ×0.88 · 斜向 ×1.40',
+      mul: { v: 0.88, h: 0.88, d: 1.40 },
+      sizeScale: 1,
+      bombSpeedMul: 1,
+      shape: 'su27'
+    },
+    {
+      id: 'aurora',
+      name: 'Aurora-X',
+      tag: '奖励机',
+      body: '#f0abfc',
+      wing: '#a855f7',
+      glow: '#e879f9',
+      desc: '达成综合得分 1000 解锁的隐藏机体。机身仅 50%，四向速度全开，清屏波推进更缓。',
+      stats: '上下/左右/斜向 全部 ×1.40 · 体型 50% · 清屏更慢',
+      mul: { v: 1.40, h: 1.40, d: 1.40 },
+      sizeScale: 0.5,
+      bombSpeedMul: 0.55,
+      shape: 'bonus',
+      bonus: true
+    }
+  ];
+
+  /* ================================================================
+     三款普通战机的俯视绘制
+  ================================================================ */
+  function drawF15(c2d, u, def, pulse) {
+    const body = def.body, wing = def.wing;
+    const fl = 13 + 9 * pulse;
+
+    c2d.fillStyle = 'rgba(120,220,255,' + (0.16 + 0.2 * pulse) + ')';
+    [-3.6, 3.6].forEach(x => {
+      poly(c2d, [[x - 2.2, 28.5], [x, 28.5 + fl], [x + 2.2, 28.5]], u);
+      c2d.fill();
+    });
+
+    c2d.fillStyle = shade(wing, -22);
+    [1, -1].forEach(s => {
+      poly(c2d, [[4 * s, 21], [16 * s, 30], [15 * s, 34], [4 * s, 29]], u);
+      c2d.fill();
+    });
+
+    const wg = c2d.createLinearGradient(0, -10 * u, 0, 22 * u);
+    wg.addColorStop(0, shade(wing, 16));
+    wg.addColorStop(1, shade(wing, -30));
+    c2d.fillStyle = wg;
+    [1, -1].forEach(s => {
+      poly(c2d, [
+        [5.5 * s, -8], [9 * s, -2], [33 * s, 18],
+        [30 * s, 23], [7 * s, 14], [6 * s, 5]
+      ], u);
+      c2d.fill();
+    });
+
+    c2d.fillStyle = 'rgba(226,232,240,0.85)';
+    [1, -1].forEach(s => {
+      poly(c2d, [
+        [30.5 * s, 15], [33 * s, 17.6], [31 * s, 18.4], [29 * s, 16.4]
+      ], u);
+      c2d.fill();
+    });
+
+    const bg = c2d.createLinearGradient(0, -32 * u, 0, 30 * u);
+    bg.addColorStop(0, shade(body, 34));
+    bg.addColorStop(0.42, body);
+    bg.addColorStop(1, shade(body, -30));
+    c2d.fillStyle = bg;
+    poly(c2d, [
+      [0, -32], [3.4, -20], [5.6, -4], [6.4, 12],
+      [5, 26], [3, 30], [-3, 30], [-5, 26],
+      [-6.4, 12], [-5.6, -4], [-3.4, -20]
+    ], u);
+    c2d.fill();
+
+    c2d.strokeStyle = 'rgba(255,255,255,0.32)';
+    c2d.lineWidth = 0.75 * u;
+    c2d.stroke();
+
+    c2d.fillStyle = shade(wing, -38);
+    [1, -1].forEach(s => {
+      poly(c2d, [
+        [5.4 * s, 9], [8.4 * s, 27], [6.4 * s, 27], [4.2 * s, 13]
+      ], u);
+      c2d.fill();
+    });
+
+    c2d.fillStyle = '#1e293b';
+    [-3.5, 3.5].forEach(x => {
+      c2d.beginPath();
+      c2d.ellipse(x * u, 28.6 * u, 2.5 * u, 1.9 * u, 0, 0, TAU);
+      c2d.fill();
+    });
+    c2d.fillStyle = 'rgba(251,191,36,0.9)';
+    [-3.5, 3.5].forEach(x => {
+      c2d.beginPath();
+      c2d.ellipse(x * u, 28.6 * u, 1.4 * u, 1.05 * u, 0, 0, TAU);
+      c2d.fill();
+    });
+
+    const cg = c2d.createLinearGradient(0, -15 * u, 0, -2 * u);
+    cg.addColorStop(0, 'rgba(240,249,255,0.96)');
+    cg.addColorStop(1, 'rgba(56,189,248,0.7)');
+    c2d.fillStyle = cg;
+    c2d.beginPath();
+    c2d.ellipse(0, -8.5 * u, 2.7 * u, 6.4 * u, 0, 0, TAU);
+    c2d.fill();
+    c2d.fillStyle = 'rgba(255,255,255,0.8)';
+    c2d.beginPath();
+    c2d.ellipse(-0.85 * u, -10.6 * u, 0.9 * u, 2.1 * u, 0, 0, TAU);
+    c2d.fill();
+
+    c2d.fillStyle = 'rgba(30,41,59,0.45)';
+    poly(c2d, [[0, -32], [1.8, -26], [-1.8, -26]], u);
+    c2d.fill();
+  }
+
+  function drawF14(c2d, u, def, pulse) {
+    const body = def.body, wing = def.wing;
+    const fl = 13 + 9 * pulse;
+
+    c2d.fillStyle = 'rgba(255,214,140,' + (0.16 + 0.2 * pulse) + ')';
+    [-4.2, 4.2].forEach(x => {
+      poly(c2d, [[x - 2.3, 30], [x, 30 + fl], [x + 2.3, 30]], u);
+      c2d.fill();
+    });
+
+    c2d.fillStyle = shade(wing, -20);
+    [1, -1].forEach(s => {
+      poly(c2d, [[4.5 * s, 25], [14.5 * s, 32.5], [13.5 * s, 36], [4.5 * s, 30]], u);
+      c2d.fill();
+    });
+
+    const wg = c2d.createLinearGradient(0, 0, 24 * u, 26 * u);
+    wg.addColorStop(0, shade(wing, 18));
+    wg.addColorStop(1, shade(wing, -28));
+    c2d.fillStyle = wg;
+    [1, -1].forEach(s => {
+      poly(c2d, [
+        [6.5 * s, 1], [9 * s, 6], [27 * s, 24],
+        [23.5 * s, 28.5], [7.5 * s, 16]
+      ], u);
+      c2d.fill();
+    });
+
+    c2d.fillStyle = 'rgba(226,232,240,0.85)';
+    [1, -1].forEach(s => {
+      poly(c2d, [
+        [25 * s, 24], [28.4 * s, 27.4], [26.6 * s, 28.6], [24 * s, 25.6]
+      ], u);
+      c2d.fill();
+    });
+
+    const bg = c2d.createLinearGradient(0, -32 * u, 0, 32 * u);
+    bg.addColorStop(0, shade(body, 32));
+    bg.addColorStop(0.4, body);
+    bg.addColorStop(1, shade(body, -32));
+    c2d.fillStyle = bg;
+    poly(c2d, [
+      [0, -32], [4, -18], [6.4, 2], [7.8, 18],
+      [6, 28], [3, 31.5], [-3, 31.5], [-6, 28],
+      [-7.8, 18], [-6.4, 2], [-4, -18]
+    ], u);
+    c2d.fill();
+
+    c2d.strokeStyle = 'rgba(255,255,255,0.32)';
+    c2d.lineWidth = 0.75 * u;
+    c2d.stroke();
+
+    c2d.fillStyle = shade(wing, -40);
+    [1, -1].forEach(s => {
+      poly(c2d, [
+        [6 * s, 11], [14.5 * s, 22], [15.5 * s, 26.5], [6.8 * s, 20]
+      ], u);
+      c2d.fill();
+    });
+
+    c2d.fillStyle = '#1e293b';
+    [-4.2, 4.2].forEach(x => {
+      c2d.beginPath();
+      c2d.ellipse(x * u, 30 * u, 2.7 * u, 2 * u, 0, 0, TAU);
+      c2d.fill();
+    });
+    c2d.fillStyle = 'rgba(251,191,36,0.9)';
+    [-4.2, 4.2].forEach(x => {
+      c2d.beginPath();
+      c2d.ellipse(x * u, 30 * u, 1.5 * u, 1.1 * u, 0, 0, TAU);
+      c2d.fill();
+    });
+
+    const cg = c2d.createLinearGradient(0, -16 * u, 0, 0);
+    cg.addColorStop(0, 'rgba(255,251,235,0.96)');
+    cg.addColorStop(1, 'rgba(245,158,11,0.6)');
+    c2d.fillStyle = cg;
+    c2d.beginPath();
+    c2d.ellipse(0, -9 * u, 3.6 * u, 7.2 * u, 0, 0, TAU);
+    c2d.fill();
+    c2d.fillStyle = 'rgba(255,255,255,0.8)';
+    c2d.beginPath();
+    c2d.ellipse(-1.1 * u, -11.4 * u, 1 * u, 2.3 * u, 0, 0, TAU);
+    c2d.fill();
+
+    c2d.fillStyle = 'rgba(30,41,59,0.45)';
+    poly(c2d, [[0, -32], [2, -25.5], [-2, -25.5]], u);
+    c2d.fill();
+  }
+
+  function drawSu27(c2d, u, def, pulse) {
+    const body = def.body, wing = def.wing;
+    const fl = 14 + 10 * pulse;
+
+    c2d.fillStyle = 'rgba(196,181,253,' + (0.16 + 0.22 * pulse) + ')';
+    [-4, 4].forEach(x => {
+      poly(c2d, [[x - 2.3, 30], [x, 30 + fl], [x + 2.3, 30]], u);
+      c2d.fill();
+    });
+
+    c2d.fillStyle = shade(wing, -22);
+    [1, -1].forEach(s => {
+      poly(c2d, [[4.5 * s, 24], [16 * s, 32], [15 * s, 36], [4.5 * s, 30]], u);
+      c2d.fill();
+    });
+
+    const wg = c2d.createLinearGradient(0, 0, 26 * u, 28 * u);
+    wg.addColorStop(0, shade(wing, 20));
+    wg.addColorStop(1, shade(wing, -30));
+    c2d.fillStyle = wg;
+    [1, -1].forEach(s => {
+      poly(c2d, [
+        [7.5 * s, 4], [9.5 * s, 10], [30 * s, 23],
+        [27.5 * s, 29], [8.5 * s, 20]
+      ], u);
+      c2d.fill();
+    });
+
+    c2d.fillStyle = shade(wing, -12);
+    [1, -1].forEach(s => {
+      poly(c2d, [
+        [5.2 * s, -16], [10.5 * s, -2], [9.5 * s, 6], [5.2 * s, 2]
+      ], u);
+      c2d.fill();
+    });
+
+    c2d.fillStyle = 'rgba(226,232,240,0.85)';
+    [1, -1].forEach(s => {
+      poly(c2d, [
+        [27.5 * s, 20.5], [30.5 * s, 24.5], [28.6 * s, 25.6], [26.2 * s, 22]
+      ], u);
+      c2d.fill();
+    });
+
+    const bg = c2d.createLinearGradient(0, -34 * u, 0, 32 * u);
+    bg.addColorStop(0, shade(body, 36));
+    bg.addColorStop(0.4, body);
+    bg.addColorStop(1, shade(body, -34));
+    c2d.fillStyle = bg;
+    poly(c2d, [
+      [0, -34], [3.4, -20], [5.4, 0], [6.8, 16],
+      [5.4, 28], [3, 32], [-3, 32], [-5.4, 28],
+      [-6.8, 16], [-5.4, 0], [-3.4, -20]
+    ], u);
+    c2d.fill();
+
+    c2d.strokeStyle = 'rgba(255,255,255,0.32)';
+    c2d.lineWidth = 0.75 * u;
+    c2d.stroke();
+
+    c2d.fillStyle = shade(wing, -42);
+    [1, -1].forEach(s => {
+      poly(c2d, [
+        [5.6 * s, 12], [11.5 * s, 24], [12.6 * s, 28.5], [6.4 * s, 23]
+      ], u);
+      c2d.fill();
+    });
+
+    c2d.fillStyle = '#1e293b';
+    [-4, 4].forEach(x => {
+      c2d.beginPath();
+      c2d.ellipse(x * u, 30.5 * u, 2.5 * u, 1.9 * u, 0, 0, TAU);
+      c2d.fill();
+    });
+    c2d.fillStyle = 'rgba(167,139,250,0.95)';
+    [-4, 4].forEach(x => {
+      c2d.beginPath();
+      c2d.ellipse(x * u, 30.5 * u, 1.4 * u, 1.05 * u, 0, 0, TAU);
+      c2d.fill();
+    });
+
+    const cg = c2d.createLinearGradient(0, -16 * u, 0, -1 * u);
+    cg.addColorStop(0, 'rgba(245,243,255,0.96)');
+    cg.addColorStop(1, 'rgba(139,92,246,0.7)');
+    c2d.fillStyle = cg;
+    c2d.beginPath();
+    c2d.ellipse(0, -9 * u, 2.9 * u, 6.8 * u, 0, 0, TAU);
+    c2d.fill();
+    c2d.fillStyle = 'rgba(255,255,255,0.8)';
+    c2d.beginPath();
+    c2d.ellipse(-0.9 * u, -11.2 * u, 0.95 * u, 2.2 * u, 0, 0, TAU);
+    c2d.fill();
+
+    c2d.fillStyle = 'rgba(30,41,59,0.45)';
+    poly(c2d, [[0, -34], [1.9, -27.5], [-1.9, -27.5]], u);
+    c2d.fill();
+  }
+
+  /* ================================================================
+     奖励机 Aurora-X：流线三角翼 + 彩虹流动色 + 多层光晕
+  ================================================================ */
+  function drawBonus(c2d, u, def, pulse) {
+    const now = performance.now();
+    const hue = (now / 9) % 360;
+    const hue2 = (hue + 80) % 360;
+    const hue3 = (hue + 200) % 360;
+
+    /* 外层光晕（随时间脉动） */
+    c2d.save();
+    c2d.globalAlpha = 0.30 + 0.22 * pulse;
+    const halo = c2d.createRadialGradient(0, 0, 2 * u, 0, 0, 26 * u);
+    halo.addColorStop(0,   'hsla(' + hue  + ',100%,72%,0.9)');
+    halo.addColorStop(0.45,'hsla(' + hue2 + ',100%,62%,0.35)');
+    halo.addColorStop(1,   'hsla(' + hue3 + ',100%,60%,0)');
+    c2d.fillStyle = halo;
+    c2d.beginPath();
+    c2d.arc(0, 0, 26 * u, 0, TAU);
+    c2d.fill();
+    c2d.restore();
+
+    /* 双段尾焰 */
+    const fl = 16 + 11 * pulse;
+    const fg = c2d.createLinearGradient(0, 8 * u, 0, (8 + fl) * u);
+    fg.addColorStop(0, 'hsla(' + hue2 + ',100%,78%,0.95)');
+    fg.addColorStop(0.5, 'hsla(' + hue + ',100%,66%,0.6)');
+    fg.addColorStop(1, 'hsla(' + hue3 + ',100%,60%,0)');
+    c2d.fillStyle = fg;
+    poly(c2d, [[-3.4, 8], [0, 8 + fl], [3.4, 8]], u);
+    c2d.fill();
+
+    /* 主翼（前掠式，色彩横向渐变） */
+    c2d.shadowColor = 'hsl(' + hue + ',100%,68%)';
+    c2d.shadowBlur = 20;
+
+    const wg = c2d.createLinearGradient(-21 * u, 0, 21 * u, 0);
+    wg.addColorStop(0,   'hsl(' + ((hue + 30) % 360) + ',96%,60%)');
+    wg.addColorStop(0.5, 'hsl(' + hue + ',100%,76%)');
+    wg.addColorStop(1,   'hsl(' + ((hue + 30) % 360) + ',96%,60%)');
+    c2d.fillStyle = wg;
+    poly(c2d, [
+      [0, -26], [5, -12], [20, 10], [14, 16],
+      [0, 8], [-14, 16], [-20, 10], [-5, -12]
+    ], u);
+    c2d.fill();
+
+    /* 机身（纵向渐变的流动高光） */
+    const bg = c2d.createLinearGradient(0, -28 * u, 0, 14 * u);
+    bg.addColorStop(0,   'hsl(' + hue + ',100%,94%)');
+    bg.addColorStop(0.5, 'hsl(' + hue2 + ',100%,72%)');
+    bg.addColorStop(1,   'hsl(' + hue3 + ',95%,56%)');
+    c2d.fillStyle = bg;
+    poly(c2d, [
+      [0, -28], [3.5, -10], [4.5, 6], [2.5, 13],
+      [-2.5, 13], [-4.5, 6], [-3.5, -10]
+    ], u);
+    c2d.fill();
+
+    /* 机身描边微光 */
+    c2d.shadowBlur = 0;
+    c2d.strokeStyle = 'hsla(' + hue + ',100%,90%,0.75)';
+    c2d.lineWidth = 0.7 * u;
+    c2d.stroke();
+
+    /* 座舱 */
+    c2d.fillStyle = 'rgba(255,255,255,0.96)';
+    c2d.beginPath();
+    c2d.ellipse(0, -10 * u, 2 * u, 4.2 * u, 0, 0, TAU);
+    c2d.fill();
+
+    /* 翼尖频闪灯（两色交替闪烁） */
+    const blink = Math.floor(now / 260) % 2 === 0;
+    c2d.fillStyle = blink
+      ? 'hsl(' + ((hue + 180) % 360) + ',100%,74%)'
+      : 'hsla(' + ((hue + 180) % 360) + ',100%,74%,0.28)';
+    c2d.beginPath(); c2d.arc(19 * u, 10 * u, 1.7 * u, 0, TAU); c2d.fill();
+    c2d.fillStyle = blink
+      ? 'hsla(' + ((hue + 180) % 360) + ',100%,74%,0.28)'
+      : 'hsl(' + ((hue + 180) % 360) + ',100%,74%)';
+    c2d.beginPath(); c2d.arc(-19 * u, 10 * u, 1.7 * u, 0, TAU); c2d.fill();
+
+    /* 机头彩虹光点 */
+    c2d.fillStyle = 'hsl(' + hue2 + ',100%,85%)';
+    c2d.beginPath(); c2d.arc(0, -27 * u, 1.3 * u, 0, TAU); c2d.fill();
+  }
+
+  /* ================================================================
+     统一入口
+  ================================================================ */
+  function paintShip(c2d, u, def, pulse) {
+    c2d.save();
+    c2d.shadowColor = def.glow;
+    c2d.shadowBlur = def.bonus ? 18 : 14;
+
+    if (def.shape === 'f15') drawF15(c2d, u, def, pulse);
+    else if (def.shape === 'f14') drawF14(c2d, u, def, pulse);
+    else if (def.shape === 'su27') drawSu27(c2d, u, def, pulse);
+    else drawBonus(c2d, u, def, pulse);
+
+    c2d.restore();
+  }
+
+  /* ================================================================
+     常量 / 尺寸
+  ================================================================ */
+  const ENERGY_BASE = 150;
+  const LB_KEY = 'planeDodgeMobileLB_v5';
+
+  const SHIP_DRAW_SCALE = 0.51;
+  const SHIP_REF_SCALE  = 0.66;
+  const PLAYER_R_BASE   = 9;
+  const SHIP_SCALE_RATIO = SHIP_DRAW_SCALE / SHIP_REF_SCALE;
+
+  const OVERLOAD_MIN_LEVEL = 4;
+  const TIME_BONUS_START   = 50;
+
+  let W = 0, H = 0, S = 1, DPR = 1;
+  let PLAYER_R = 6.95, BULLET_R = 6, GRAZE_BASE = 54, PLAYER_SPEED = 400, FINGER_OFFSET = 100;
+  let bgGrad = null, stars = [];
+
+  /* ================================================================
+     状态
+  ================================================================ */
+  let screen = 'select';
+  let ship = SHIPS[0];
+
+  const player = { x: 0, y: 0, tilt: 0 };
+  let bullets = [], particles = [], floaters = [], waves = [];
+
+  let elapsed = 0, score = 0, energy = 0, spawnTimer = 0;
+  let flash = 0, shake = 0;
+  let lives = 1, maxLives = 1, invuln = 0;
+  let level = 1;
+  let speedBonus = 1, grazeBonus = 1, energyBonus = 1;
+  let bombCount = 0;
+
+  let overloadActive = false;
+  let overloadTime   = 0;
+  let overloadTotal  = 0;
+  let timeBonusAnnounced = false;
+
+  let touchTarget = null;
+  let activePointer = null;
+  const keys = Object.create(null);
+
+  let lastRecord = null;
+  let currentTab = 'weight';
+
+  /* ================================================================
+     判定半径：随当前战机体型系数缩放
+  ================================================================ */
+  function recalcRadius() {
+    const sc = ship.sizeScale || 1;
+    PLAYER_R = PLAYER_R_BASE * S * SHIP_SCALE_RATIO * sc;
+  }
+
+  /* ================================================================
+     尺寸自适应
+  ================================================================ */
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+    W = stage.clientWidth  || window.innerWidth;
+    H = stage.clientHeight || window.innerHeight;
+
+    cv.width  = Math.round(W * DPR);
+    cv.height = Math.round(H * DPR);
+    cv.style.width  = W + 'px';
+    cv.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    S = clamp(H / 800, 0.62, 1.3);
+    recalcRadius();
+    BULLET_R   = 6  * S;
+    GRAZE_BASE = 54 * S;
+    PLAYER_SPEED = 400 * S;
+    FINGER_OFFSET = clamp(H * 0.13, 64, 130);
+
+    bgGrad = ctx.createRadialGradient(W / 2, H * 0.35, 40, W / 2, H * 0.5, Math.max(W, H) * 0.85);
+    bgGrad.addColorStop(0,    '#111c38');
+    bgGrad.addColorStop(0.55, '#0a1020');
+    bgGrad.addColorStop(1,    '#04060d');
+
+    buildStars();
+
+    player.x = clamp(player.x || W / 2, PLAYER_R + 4, W - PLAYER_R - 4);
+    player.y = clamp(player.y || H * 0.62, PLAYER_R + 4, H - PLAYER_R - 4);
+  }
+
+  function buildStars() {
+    stars = [];
+    const n = Math.round((W * H) / 6800);
+    for (let i = 0; i < n; i++) {
+      stars.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        s: rand(0.7, 2.0) * S,
+        a: rand(0.12, 0.5),
+        v: rand(10, 46) * S
+      });
+    }
+  }
+
+  /* ================================================================
+     等级 / 属性
+  ================================================================ */
+  const LV_THRESHOLDS = [0, 150, 350, 600, 900, 1250, 1650, 2100, 2600, 3200, 3900, 4700, 5600];
+
+  function levelFromScore(s) {
+    let lv = 1;
+    for (let i = 1; i < LV_THRESHOLDS.length; i++) {
+      if (s >= LV_THRESHOLDS[i]) lv = i + 1;
+    }
+    return lv;
+  }
+
+  function livesForLevel(lv) {
+    let n = 1;
+    if (lv >= 3) n++;
+    if (lv >= 6) n++;
+    if (lv >= 9) n++;
+    return n;
+  }
+
+  function applyStats() {
+    speedBonus  = 1 + Math.min(0.32, (level - 1) * 0.04);
+    grazeBonus  = 1 + Math.min(0.35, Math.max(0, level - 4) * 0.05);
+    energyBonus = 1 + Math.min(0.60, Math.max(0, level - 7) * 0.12);
+  }
+
+  function grazeRadius() { return GRAZE_BASE * grazeBonus; }
+  function energyMax()   { return ENERGY_BASE * Math.max(0.55, 1 - 0.05 * bombCount); }
+
+  function checkLevelUp() {
+    const target = levelFromScore(score);
+    while (level < target) {
+      level++;
+
+      const gainedLives = livesForLevel(level) - livesForLevel(level - 1);
+      if (gainedLives > 0) {
+        lives += gainedLives;
+        maxLives += gainedLives;
+        floaters.push({
+          x: player.x, y: player.y - 56 * S,
+          text: '🛡 装甲 +1', color: '#fb7185',
+          life: 1.2, max: 1.2, big: false
+        });
+        for (let i = 0; i < 18; i++) {
+          const a = rand(0, TAU), sp = rand(60, 200) * S;
+          particles.push({
+            x: player.x, y: player.y,
+            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+            life: rand(0.4, 0.8), max: 0.8,
+            r: rand(1.4, 3) * S, color: '#fb7185'
+          });
+        }
+      }
+
+      applyStats();
+
+      floaters.push({
+        x: player.x, y: player.y - 34 * S,
+        text: '⬆ 等级 ' + level, color: '#fbbf24',
+        life: 1.0, max: 1.0, big: true
+      });
+      energy = Math.min(energyMax(), energy + 15);
+    }
+  }
+
+  /* ================================================================
+     过载结算
+  ================================================================ */
+  function overloadBonusOf(t) {
+    if (t < 0.4) return 0;
+    return Math.round(t * 6 + t * t * 0.8);
+  }
+
+  function endOverload() {
+    if (!overloadActive) return;
+    overloadActive = false;
+    const t = overloadTime;
+    overloadTime = 0;
+
+    const bonus = overloadBonusOf(t);
+    if (bonus <= 0) return;
+
+    overloadTotal += bonus;
+    score += bonus;
+    checkLevelUp();
+
+    addFloater(player.x, player.y - 48 * S,
+      '⚡ 过载 +' + bonus, '#fbbf24', true, 1.15);
+  }
+
+  function updateOverload(dt) {
+    if (level < OVERLOAD_MIN_LEVEL) {
+      if (overloadActive) endOverload();
+      return;
+    }
+    if (energy >= energyMax()) {
+      if (!overloadActive) {
+        overloadActive = true;
+        overloadTime = 0;
+      }
+      overloadTime += dt;
+    } else if (overloadActive) {
+      endOverload();
+    }
+  }
+
+  /* ================================================================
+     时间奖励
+  ================================================================ */
+  function calcTimeBonus(t) {
+    const over = Math.max(0, t - TIME_BONUS_START);
+    if (over <= 0) return 0;
+    return Math.round(over * 8 + over * over * 0.15);
+  }
+
+  /* ================================================================
+     排行榜
+  ================================================================ */
+  function calcWeight(time, sc, timeBonus) {
+    return Math.round(sc * 0.8 + time * 4 + (timeBonus || 0));
+  }
+
+  function loadBoard() {
+    try {
+      const raw = localStorage.getItem(LB_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  }
+  function saveBoard(list) {
+    try { localStorage.setItem(LB_KEY, JSON.stringify(list)); } catch (e) {}
+  }
+
+  function bestWeightOf() {
+    const board = loadBoard();
+    let best = 0;
+    for (const r of board) {
+      const w = Number(r.weight) || 0;
+      if (w > best) best = w;
+    }
+    return best;
+  }
+
+  function getRating(w) {
+    if (w >= 2000) return { title: '👑 王牌飞行员', desc: '神级擦弹！弹幕在你面前形同虚设。' };
+    if (w >= 1200) return { title: '🔥 精英飞行员', desc: '极限贴脸躲弹，操作行云流水。' };
+    if (w >= 700)  return { title: '✨ 熟练飞行员', desc: '你已经掌握了擦弹的节奏。' };
+    if (w >= 350)  return { title: '🌱 见习飞行员', desc: '稳扎稳打，再大胆一点能拿更高分。' };
+    if (w >= 120)  return { title: '🛩️ 新兵', desc: '先活下来，再去贴子弹。' };
+    return { title: '💀 菜鸟', desc: '别慌，先熟悉一下弹幕的节奏。' };
+  }
+
+  /* ================================================================
+     粒子 / 飘字
+  ================================================================ */
+  function burst(x, y, color, count, speed) {
+    for (let i = 0; i < count; i++) {
+      const a = rand(0, TAU), sp = speed * rand(0.25, 1);
+      particles.push({
+        x, y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        life: rand(0.25, 0.65), max: 0.7,
+        r: rand(1.2, 2.8) * S, color
+      });
+    }
+  }
+
+  function addFloater(x, y, text, color, big, dur) {
+    floaters.push({
+      x, y, text, color,
+      life: dur || 0.8, max: dur || 0.8, big: !!big
+    });
+  }
+
+  /* ================================================================
+     子弹
+  ================================================================ */
+  function spawnBullet(speedBase) {
+    const M = 80 * S;
+    const r = Math.random();
+    let x, y;
+
+    if (r < 0.58) {
+      x = rand(-M, W + M); y = -M;
+    } else if (r < 0.79) {
+      x = -M; y = rand(-M * 0.7, H * 0.42);
+    } else {
+      x = W + M; y = rand(-M * 0.7, H * 0.42);
+    }
+
+    const spread = (110 - Math.min(elapsed / 90, 1) * 70) * S;
+    const tx = player.x + rand(-spread, spread);
+    const ty = player.y + rand(-spread * 0.7, spread * 0.7);
+
+    let dx = tx - x, dy = ty - y;
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len; dy /= len;
+
+    const sp = speedBase * rand(0.85, 1.18);
+
+    bullets.push({
+      x, y,
+      vx: dx * sp, vy: dy * sp,
+      r: BULLET_R,
+      minDist: Infinity,
+      settled: false,
+      hue: rand(12, 42)
+    });
+  }
+
+  /* ================================================================
+     擦弹结算
+  ================================================================ */
+  function settleGraze(b) {
+    b.settled = true;
+    const gr = grazeRadius();
+    const hitD = PLAYER_R + b.r;
+    const t = clamp((gr - b.minDist) / Math.max(gr - hitD, 0.001), 0, 1);
+    const pts = Math.round(2 + t * t * 30);
+
+    score += pts;
+    energy = Math.min(energyMax(), energy + pts * 1.15 * energyBonus);
+    checkLevelUp();
+
+    const hot = t > 0.62;
+    const color = hot ? '#fbbf24' : '#6ee7ff';
+    addFloater(player.x, player.y - 30 * S, '+' + pts, color, hot, 0.8);
+
+    const ang = Math.atan2(player.y - b.y, player.x - b.x);
+    const cnt = hot ? 5 : 3;
+    for (let i = 0; i < cnt; i++) {
+      const a = ang + rand(-0.7, 0.7);
+      const sp = rand(70, 165) * S;
+      particles.push({
+        x: player.x + Math.cos(a) * (PLAYER_R + 4),
+        y: player.y + Math.sin(a) * (PLAYER_R + 4),
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        life: rand(0.25, 0.55), max: 0.6,
+        r: rand(1.2, 2.8) * S, color
+      });
+    }
+  }
+
+  /* ================================================================
+     技能：逐层清屏（奖励机波速更慢）
+  ================================================================ */
+  function tryBomb() {
+    if (screen !== 'playing') return;
+
+    if (energy < energyMax()) {
+      addFloater(player.x, player.y - 36 * S, '能量不足', '#f87171', false, 0.7);
+      return;
+    }
+
+    endOverload();
+    energy = 0;
+    flash = 0.7;
+    shake = 14 * S;
+
+    const bombMul = ship.bombSpeedMul || 1;
+    const waveSpeed = (900 * S) / (1 + 0.22 * bombCount) * bombMul;
+    const thickness = (24 + bombCount * 8) * S;
+    const maxR      = Math.hypot(W, H) * 0.75 + 120 * S;
+
+    waves.push({
+      x: player.x, y: player.y,
+      r: 0, prevR: 0,
+      speed: waveSpeed,
+      thickness: thickness,
+      maxR: maxR,
+      rainbow: !!ship.bonus
+    });
+
+    bombCount++;
+
+    addFloater(W / 2, H * 0.44, '⚡ 清 屏 ⚡', '#fbbf24', true, 1.0);
+    burst(player.x, player.y, ship.bonus ? '#e879f9' : '#fbbf24', 26, 260);
+  }
+
+  /* ================================================================
+     被击中
+  ================================================================ */
+  function onHit() {
+    if (invuln > 0) return;
+
+    lives--;
+    flash = 0.85;
+    shake = 20 * S;
+    burst(player.x, player.y, '#fb7185', 30, 300);
+
+    if (lives <= 0) { gameOver(); return; }
+
+    invuln = 2.0;
+
+    const safeR = 170 * S;
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      if (Math.hypot(b.x - player.x, b.y - player.y) < safeR) {
+        burst(b.x, b.y, 'hsl(' + b.hue + ',100%,64%)', 2, 90);
+        bullets.splice(i, 1);
+      }
+    }
+
+    addFloater(player.x, player.y - 40 * S, '🛡 装甲受损', '#fb7185', true, 1.1);
+  }
+
+  /* ================================================================
+     主更新
+  ================================================================ */
+  function update(dt) {
+    elapsed += dt;
+
+    if (!timeBonusAnnounced && elapsed > TIME_BONUS_START) {
+      timeBonusAnnounced = true;
+      addFloater(W / 2, H * 0.40, '⏱ 时间奖励已激活', '#6ee7ff', true, 1.5);
+    }
+
+    const diff = Math.min(elapsed / 80, 1);
+    const areaRatio = clamp(Math.sqrt((W * H) / (400 * 800)), 0.75, 1.25);
+    const spawnInterval = (0.32 - diff * 0.23) * areaRatio;
+    const baseSpeed = (170 + diff * 260) * S;
+
+    if (invuln > 0) invuln = Math.max(0, invuln - dt);
+
+    /* 移动 */
+    const prevX = player.x;
+
+    let ix = 0, iy = 0;
+    if (keys['ArrowLeft']  || keys['KeyA']) ix -= 1;
+    if (keys['ArrowRight'] || keys['KeyD']) ix += 1;
+    if (keys['ArrowUp']    || keys['KeyW']) iy -= 1;
+    if (keys['ArrowDown']  || keys['KeyS']) iy += 1;
+
+    if (ix || iy) {
+      touchTarget = null;
+      const len = Math.hypot(ix, iy);
+      const mul = (!ix || !iy) ? (iy ? ship.mul.v : ship.mul.h) : ship.mul.d;
+      const spd = PLAYER_SPEED * speedBonus * mul;
+      player.x += (ix / len) * spd * dt;
+      player.y += (iy / len) * spd * dt;
+    } else if (touchTarget) {
+      const k = 1 - Math.exp(-dt * 24);
+      let nx = player.x + (touchTarget.x - player.x) * k;
+      let ny = player.y + (touchTarget.y - player.y) * k;
+
+      const ddx = nx - player.x, ddy = ny - player.y;
+      const dd = Math.hypot(ddx, ddy);
+      const maxStep = PLAYER_SPEED * 2.0 * speedBonus * dt;
+      if (dd > maxStep && dd > 0.0001) {
+        nx = player.x + (ddx / dd) * maxStep;
+        ny = player.y + (ddy / dd) * maxStep;
+      }
+      player.x = nx;
+      player.y = ny;
+    }
+
+    player.x = clamp(player.x, PLAYER_R + 4, W - PLAYER_R - 4);
+    player.y = clamp(player.y, PLAYER_R + 4, H - PLAYER_R - 4);
+
+    const dxMove = player.x - prevX;
+    const targetTilt = clamp(dxMove / Math.max(dt, 0.001) / 1500, -0.42, 0.42);
+    player.tilt += (targetTilt - player.tilt) * Math.min(1, dt * 14);
+
+    /* 刷子弹 */
+    spawnTimer -= dt;
+    let guard = 0;
+    while (spawnTimer <= 0 && guard++ < 8) {
+      spawnBullet(baseSpeed);
+      spawnTimer += spawnInterval * rand(0.72, 1.32);
+    }
+
+    /* 更新子弹 */
+    const gr = grazeRadius();
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+
+      const ddx = player.x - b.x;
+      const ddy = player.y - b.y;
+      const d = Math.hypot(ddx, ddy);
+
+      if (invuln <= 0 && d < PLAYER_R + b.r) { onHit(); return; }
+
+      if (d < b.minDist) b.minDist = d;
+
+      if (!b.settled && b.minDist < gr && d >= gr) settleGraze(b);
+
+      if (b.x < -140 * S || b.x > W + 140 * S ||
+          b.y < -140 * S || b.y > H + 220 * S) {
+        if (!b.settled && b.minDist < gr) settleGraze(b);
+        bullets.splice(i, 1);
+      }
+    }
+
+    /* 清屏波 */
+    for (let i = waves.length - 1; i >= 0; i--) {
+      const w = waves[i];
+      w.prevR = w.r;
+      w.r += w.speed * dt;
+
+      if (w.r > w.maxR) { waves.splice(i, 1); continue; }
+
+      const inner = w.prevR - w.thickness;
+      const outer = w.r + w.thickness;
+
+      for (let j = bullets.length - 1; j >= 0; j--) {
+        const b = bullets[j];
+        const d = Math.hypot(b.x - w.x, b.y - w.y);
+        if (d >= inner && d <= outer) {
+          burst(b.x, b.y, 'hsl(' + b.hue + ',100%,64%)', 2, 110);
+          if (!b.settled && b.minDist < gr) settleGraze(b);
+          bullets.splice(j, 1);
+        }
+      }
+    }
+
+    /* 过载计时 */
+    updateOverload(dt);
+  }
+
+  /* ================================================================
+     特效更新
+  ================================================================ */
+  function updateEffects(dt) {
+    for (const s of stars) {
+      s.y += s.v * dt;
+      if (s.y > H + 2) { s.y = -2; s.x = Math.random() * W; }
+    }
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vx *= 0.94;
+      p.vy *= 0.94;
+      p.life -= dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    for (let i = floaters.length - 1; i >= 0; i--) {
+      const f = floaters[i];
+      f.y -= 38 * S * dt;
+      f.life -= dt;
+      if (f.life <= 0) floaters.splice(i, 1);
+    }
+
+    if (flash > 0) flash = Math.max(0, flash - dt * 2.6);
+    if (shake > 0) shake = Math.max(0, shake - dt * 65 * S);
+  }
+
+  /* ================================================================
+     游戏内绘制
+  ================================================================ */
+  function drawPlayer() {
+    const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 90);
+    const sc = ship.sizeScale || 1;
+    const u = S * SHIP_DRAW_SCALE * sc;
+    const now = performance.now();
+
+    /* 擦弹提示圈 */
+    const gr = grazeRadius();
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, gr, 0, TAU);
+    ctx.strokeStyle = 'rgba(110,231,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 8]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    /* 奖励机常驻彩虹微光环 */
+    if (ship.bonus) {
+      const hue = (now / 9) % 360;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, PLAYER_R + 12 * S, 0, TAU);
+      ctx.strokeStyle = 'hsla(' + hue + ',100%,70%,' + (0.16 + 0.14 * pulse) + ')';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    /* 过载金色光环 */
+    if (overloadActive) {
+      const rr = PLAYER_R + (16 + 5 * Math.sin(now / 190)) * S;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, rr, 0, TAU);
+      ctx.strokeStyle = 'rgba(251,191,36,' + (0.34 + 0.28 * Math.sin(now / 150)) + ')';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 6]);
+      ctx.lineDashOffset = -now / 40;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+    }
+
+    /* 无敌闪烁 */
+    ctx.globalAlpha = invuln > 0
+      ? (Math.floor(invuln * 14) % 2 ? 0.85 : 0.22)
+      : 1;
+
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.tilt);
+    paintShip(ctx, u, ship, pulse);
+    ctx.restore();
+
+    ctx.globalAlpha = 1;
+
+    /* 判定核心小红点 */
+    const dotR = Math.max(1.1 * S, PLAYER_R * 0.32);
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, dotR, 0, TAU);
+    ctx.fillStyle = 'rgba(248,113,113,0.95)';
+    ctx.shadowColor = '#f87171';
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    /* 无敌护盾环 */
+    if (invuln > 0) {
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, PLAYER_R + 10 * S, 0, TAU);
+      ctx.strokeStyle = 'rgba(251,113,133,' + (0.35 + 0.35 * Math.sin(invuln * 18)) + ')';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+  }
+
+  function render() {
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    for (const s of stars) {
+      ctx.globalAlpha = s.a;
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(s.x, s.y, s.s, s.s);
+    }
+    ctx.globalAlpha = 1;
+
+    if (screen === 'select') return;
+
+    ctx.save();
+    if (shake > 0.5) {
+      ctx.translate(rand(-shake, shake) * 0.5, rand(-shake, shake) * 0.5);
+    }
+
+    /* 手指指示 */
+    if (touchTarget && screen === 'playing') {
+      const fx = touchTarget.x;
+      const fy = touchTarget.y + FINGER_OFFSET;
+
+      ctx.beginPath();
+      ctx.setLineDash([4, 7]);
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(player.x, player.y);
+      ctx.strokeStyle = 'rgba(110,231,255,0.16)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.beginPath();
+      ctx.arc(fx, fy, 24 * S, 0, TAU);
+      ctx.strokeStyle = 'rgba(110,231,255,0.22)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(fx, fy, 4 * S, 0, TAU);
+      ctx.fillStyle = 'rgba(110,231,255,0.35)';
+      ctx.fill();
+    }
+
+    if (screen === 'playing') drawPlayer();
+
+    /* 子弹 */
+    for (const b of bullets) {
+      const col = 'hsl(' + b.hue + ',100%,64%)';
+
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(b.x - b.vx * 0.03, b.y - b.vy * 0.03, b.r * 1.1, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      ctx.shadowColor = col;
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, TAU);
+      ctx.fill();
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      ctx.arc(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.4, 0, TAU);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+
+    /* 清屏波（奖励机为流动彩虹色） */
+    for (const w of waves) {
+      const t = clamp(1 - w.r / w.maxR, 0, 1);
+      const now = performance.now();
+
+      if (w.rainbow) {
+        const hue = (now / 7 + w.r * 0.35) % 360;
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, w.r, 0, TAU);
+        ctx.strokeStyle = 'hsla(' + hue + ',100%,66%,' + (0.30 * t + 0.05) + ')';
+        ctx.lineWidth = w.thickness * 2;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, w.r, 0, TAU);
+        ctx.strokeStyle = 'hsla(' + ((hue + 60) % 360) + ',100%,82%,' + (0.8 * t) + ')';
+        ctx.lineWidth = 2.5 * S;
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, w.r, 0, TAU);
+        ctx.strokeStyle = 'rgba(251,191,36,' + (0.30 * t + 0.05) + ')';
+        ctx.lineWidth = w.thickness * 2;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, w.r, 0, TAU);
+        ctx.strokeStyle = 'rgba(255,236,170,' + (0.75 * t) + ')';
+        ctx.lineWidth = 2.5 * S;
+        ctx.stroke();
+      }
+    }
+
+    /* 粒子 */
+    for (const p of particles) {
+      ctx.globalAlpha = Math.max(0, p.life / p.max);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    /* 飘字 */
+    ctx.textAlign = 'center';
+    for (const f of floaters) {
+      ctx.globalAlpha = Math.max(0, f.life / f.max);
+      ctx.font = 'bold ' + (f.big ? 25 * S : 15 * S) +
+        'px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.fillStyle = f.color;
+      ctx.shadowColor = f.color;
+      ctx.shadowBlur = 12;
+      ctx.fillText(f.text, f.x, f.y);
+    }
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'start';
+
+    ctx.restore();
+
+    if (flash > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,' + (flash * 0.5) + ')';
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  /* ================================================================
+     HUD
+  ================================================================ */
+  let hudTick = 0;
+  function updateHUD() {
+    if (hudTick++ % 2) return;
+
+    uiTime.textContent  = elapsed.toFixed(1);
+    uiScore.textContent = score;
+    uiLevel.textContent = level;
+    uiLives.textContent = lives + '/' + maxLives;
+
+    const pct = clamp(energy / energyMax(), 0, 1);
+    uiEnergyFill.style.width = (pct * 100).toFixed(1) + '%';
+
+    const ready = energy >= energyMax();
+    uiEnergyFill.classList.toggle('ready', ready);
+    skillBtn.classList.toggle('ready', ready);
+
+    if (overloadActive) {
+      uiOverload.textContent = '⚡ +' + overloadTime.toFixed(1) + 's';
+      uiOverload.classList.add('show');
+    } else {
+      uiOverload.classList.remove('show');
+    }
+  }
+
+  /* ================================================================
+     游戏流程
+  ================================================================ */
+  function resetGame() {
+    bullets = [];
+    particles = [];
+    floaters = [];
+    waves = [];
+
+    elapsed = 0;
+    score = 0;
+    energy = 0;
+    spawnTimer = 0.9;
+    flash = 0;
+    shake = 0;
+    bombCount = 0;
+    invuln = 0;
+    level = 1;
+    lives = 1;
+    maxLives = 1;
+
+    overloadActive = false;
+    overloadTime = 0;
+    overloadTotal = 0;
+    timeBonusAnnounced = false;
+
+    recalcRadius();
+    applyStats();
+
+    touchTarget = null;
+    activePointer = null;
+    for (const k in keys) keys[k] = false;
+
+    player.x = W / 2;
+    player.y = H * 0.62;
+    player.tilt = 0;
+
+    overOverlay.classList.add('hidden');
+
+    addFloater(W / 2, H * 0.30, '按住屏幕拖动飞机', '#6ee7ff', false, 2.4);
+    addFloater(W / 2, H * 0.365, '越靠近子弹，得分越高', '#a78bfa', false, 2.4);
+
+    if (ship.bonus) {
+      addFloater(W / 2, H * 0.43, 'Aurora-X 启动', '#f0abfc', true, 1.8);
+    }
+
+    uiOverload.classList.remove('show');
+    updateHUD();
+  }
+
+  function startGame(shipIndex) {
+    const def = SHIPS[shipIndex];
+    if (!def) return;
+
+    /* 奖励机需解锁 */
+    if (def.bonus && bestWeightOf() < BONUS_UNLOCK_SCORE) {
+      showToast('🔒 综合得分达到 ' + BONUS_UNLOCK_SCORE + ' 即可解锁 Aurora-X');
+      return;
+    }
+
+    ship = def;
+    recalcRadius();
+    screen = 'playing';
+    selectOverlay.classList.add('hidden');
+    resetGame();
+  }
+
+  function backToSelect() {
+    screen = 'select';
+    overOverlay.classList.add('hidden');
+    selectOverlay.classList.remove('hidden');
+    bullets = [];
+    waves = [];
+    particles = [];
+    floaters = [];
+    overloadActive = false;
+    uiOverload.classList.remove('show');
+    buildShipCards();     // 刷新解锁状态
+  }
+
+  function gameOver() {
+    if (screen !== 'playing') return;
+
+    endOverload();
+
+    screen = 'over';
+
+    flash = 0.9;
+    shake = 22 * S;
+    burst(player.x, player.y, ship.body, 34, 380);
+    burst(player.x, player.y, '#fbbf24', 20, 240);
+
+    const tRounded = Math.round(elapsed * 10) / 10;
+    const timeBonus = calcTimeBonus(tRounded);
+
+    const rec = {
+      time: tRounded,
+      score: score,
+      timeBonus: timeBonus,
+      weight: calcWeight(tRounded, score, timeBonus),
+      ship: ship.id,
+      date: Date.now()
+    };
+
+    const board = loadBoard();
+    board.push(rec);
+    board.sort((a, b) => b.date - a.date);
+    const trimmed = board.slice(0, 30);
+    saveBoard(trimmed);
+
+    lastRecord = rec;
+
+    const r = getRating(rec.weight);
+    uiRating.textContent  = r.title;
+    uiRatingDesc.textContent = r.desc;
+    uiResTime.textContent     = rec.time.toFixed(1) + 's';
+    uiResScore.textContent    = rec.score;
+    uiResTimeBonus.textContent = rec.timeBonus > 0 ? '+' + rec.timeBonus : '0';
+    uiResWeight.textContent   = rec.weight;
+
+    const sortedW = [...trimmed].sort((a, b) => (b.weight - a.weight) || (b.time - a.time));
+    const rank = sortedW.findIndex(x => x.date === rec.date) + 1;
+
+    currentTab = 'weight';
+    document.querySelectorAll('.tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.tab === 'weight');
+    });
+
+    renderBoard(rank);
+    overOverlay.classList.remove('hidden');
+
+    /* 解锁提示 */
+    if (rec.weight >= BONUS_UNLOCK_SCORE) {
+      showToast('🎉 综合得分 ' + rec.weight + '，Aurora-X 已解锁！下次选机可用');
+    }
+  }
+
+  /* ================================================================
+     排行榜渲染
+  ================================================================ */
+  function renderBoard(rank) {
+    const board = loadBoard();
+    let list;
+
+    if (currentTab === 'time') {
+      list = [...board].sort((a, b) => (b.time - a.time) || (b.weight - a.weight)).slice(0, 6);
+    } else if (currentTab === 'score') {
+      list = [...board].sort((a, b) => (b.score - a.score) || (b.time - a.time)).slice(0, 6);
+    } else {
+      list = [...board].sort((a, b) => (b.weight - a.weight) || (b.time - a.time)).slice(0, 6);
+    }
+
+    const tabName = currentTab === 'time' ? '时间榜'
+                  : currentTab === 'score' ? '分数榜' : '综合榜';
+
+    if (rank && currentTab === 'weight') {
+      uiBoardTitle.textContent = '🏆 ' + tabName + ' · 本次第 ' + rank + ' 名';
+    } else {
+      uiBoardTitle.textContent = '🏆 ' + tabName;
+    }
+
+    uiBoardList.innerHTML = '';
+
+    if (!list.length) {
+      const d = document.createElement('div');
+      d.className = 'emptyBoard';
+      d.textContent = '暂无记录';
+      uiBoardList.appendChild(d);
+      return;
+    }
+
+    list.forEach((item, i) => {
+      const row = document.createElement('div');
+      const isMe = lastRecord && item.date === lastRecord.date;
+      row.className = 'row' + (isMe ? ' me' : '');
+
+      let main, sub;
+      if (currentTab === 'time') {
+        main = Number(item.time).toFixed(1) + 's';
+        sub  = item.score + ' 分';
+      } else if (currentTab === 'score') {
+        main = item.score + ' 分';
+        sub  = Number(item.time).toFixed(1) + 's';
+      } else {
+        main = String(item.weight);
+        sub  = Number(item.time).toFixed(1) + 's · ' + item.score + '分';
+      }
+
+      row.innerHTML =
+        '<span class="rk">' + (i + 1) + '</span>' +
+        '<span class="main">' + main + '</span>' +
+        '<span class="sub">' + sub + '</span>';
+      uiBoardList.appendChild(row);
+    });
+  }
+
+  /* ================================================================
+     选机卡片（含奖励机锁定逻辑）
+  ================================================================ */
+  function buildShipCards() {
+    shipList.innerHTML = '';
+
+    const bestWeight = bestWeightOf();
+    const unlocked = bestWeight >= BONUS_UNLOCK_SCORE;
+
+    SHIPS.forEach((def, index) => {
+      const isBonus = !!def.bonus;
+      const locked = isBonus && !unlocked;
+
+      const card = document.createElement('div');
+      card.className = 'shipCard'
+        + (locked ? ' locked' : '')
+        + (isBonus && !locked ? ' bonus' : '');
+
+      let descHtml, statsHtml;
+      if (locked) {
+        descHtml = '🔒 综合得分达到 ' + BONUS_UNLOCK_SCORE + ' 解锁（当前最高 ' + bestWeight + '）';
+        statsHtml = '体型 50% · 四向全速 · 清屏更慢';
+      } else {
+        descHtml = def.desc;
+        statsHtml = def.stats;
+      }
+
+      card.innerHTML =
+        '<canvas class="shipCv"></canvas>' +
+        '<div class="shipInfo">' +
+          '<div class="shipHead">' +
+            '<span class="shipName">' + def.name + '</span>' +
+            '<span class="shipTag' + (isBonus ? ' bonus' : '') + '">' + def.tag + '</span>' +
+          '</div>' +
+          '<div class="shipDesc">' + descHtml + '</div>' +
+          '<div class="shipStats">' + statsHtml + '</div>' +
+        '</div>';
+
+      card.addEventListener('click', () => startGame(index), { passive: true });
+      shipList.appendChild(card);
+
+      /* 预览绘制 */
+      const el = card.querySelector('canvas');
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const size = 96;
+      el.width  = size * dpr;
+      el.height = size * dpr;
+      el.style.width  = size + 'px';
+      el.style.height = size + 'px';
+
+      const c2d = el.getContext('2d');
+      c2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c2d.clearRect(0, 0, size, size);
+      c2d.save();
+      c2d.translate(size / 2, size / 2 + 3);
+
+      /* 奖励机本体是 50% 尺寸，预览时放大以便辨认 */
+      const previewU = isBonus ? 1.18 * 1.5 : 1.18;
+      paintShip(c2d, previewU, def, 0.72);
+      c2d.restore();
+
+      if (locked) {
+        /* 锁定卡片加一层暗色遮罩 */
+        c2d.save();
+        c2d.globalCompositeOperation = 'source-atop';
+        c2d.fillStyle = 'rgba(6,10,20,0.5)';
+        c2d.fillRect(0, 0, size, size);
+        c2d.restore();
+      }
+    });
+  }
+
+  /* ================================================================
+     输入：触摸
+  ================================================================ */
+  function pointerToTarget(e) {
+    const rect = cv.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top - FINGER_OFFSET
+    };
+  }
+
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (screen !== 'playing') return;
+    if (activePointer !== null) return;
+    activePointer = e.pointerId;
+    try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+    touchTarget = pointerToTarget(e);
+  }, { passive: false });
+
+  cv.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== activePointer) return;
+    e.preventDefault();
+    touchTarget = pointerToTarget(e);
+  }, { passive: false });
+
+  function endPointer(e) {
+    if (e.pointerId !== activePointer) return;
+    activePointer = null;
+    touchTarget = null;
+  }
+  cv.addEventListener('pointerup', endPointer);
+  cv.addEventListener('pointercancel', endPointer);
+  cv.addEventListener('pointerleave', endPointer);
+
+  skillBtn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (screen === 'playing') tryBomb();
+  }, { passive: false });
+
+  /* ================================================================
+     输入：键盘（PC 兼容）
+  ================================================================ */
+  window.addEventListener('keydown', (e) => {
+    const code = e.code;
+    if (code.startsWith('Arrow') || code === 'Space') e.preventDefault();
+
+    if (code === 'Space') {
+      if (screen === 'playing') tryBomb();
+      return;
+    }
+    if (code === 'KeyR' && screen === 'over') {
+      screen = 'playing';
+      resetGame();
+      return;
+    }
+    keys[code] = true;
+  });
+
+  window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+  window.addEventListener('blur', () => {
+    for (const k in keys) keys[k] = false;
+    touchTarget = null;
+    activePointer = null;
+  });
+
+  document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
+
+  /* ================================================================
+     Tab 切换
+  ================================================================ */
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      currentTab = tab.dataset.tab;
+      document.querySelectorAll('.tab').forEach(t => {
+        t.classList.toggle('active', t === tab);
+      });
+      const board = loadBoard();
+      const sortedW = [...board].sort((a, b) => (b.weight - a.weight) || (b.time - a.time));
+      const rank = lastRecord
+        ? sortedW.findIndex(x => x.date === lastRecord.date) + 1
+        : 0;
+      renderBoard(rank);
+    });
+  });
+
+  restartBtn.addEventListener('click', () => {
+    screen = 'playing';
+    resetGame();
+  });
+
+  changeShipBtn.addEventListener('click', backToSelect);
+
+  /* ================================================================
+     主循环
+  ================================================================ */
+  let last = performance.now();
+
+  function loop(now) {
+    let dt = (now - last) / 1000;
+    last = now;
+    if (dt > 0.05) dt = 0.05;
+
+    if (screen === 'playing') update(dt);
+    updateEffects(dt);
+
+    render();
+    updateHUD();
+
+    requestAnimationFrame(loop);
+  }
+
+  /* ================================================================
+     启动
+  ================================================================ */
+  resize();
+  buildShipCards();
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', () => setTimeout(resize, 220));
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', () => setTimeout(resize, 60));
+  }
+
+  player.x = W / 2;
+  player.y = H * 0.62;
+
+  last = performance.now();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
